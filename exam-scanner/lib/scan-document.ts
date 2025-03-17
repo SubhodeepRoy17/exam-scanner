@@ -1,28 +1,149 @@
-// This is a mock implementation of document scanning and OCR
-// In a real application, you would use a library like Tesseract.js
+import { processImage, getProcessingResult, uploadFile } from "./ocr-api"
+import { createScanResult } from "./db"
 
-export async function scanDocument(imageDataUrl: string): Promise<any> {
-  // Simulate processing delay
-  await new Promise((resolve) => setTimeout(resolve, 2000))
+// Updated version that uses the FastAPI backend
+export async function scanDocument(imageDataUrl: string, options = {}): Promise<any> {
+  try {
+    // Start the OCR processing
+    const taskId = await processImage(imageDataUrl, options)
 
-  // Mock result - in a real app, this would be the result of OCR processing
-  return {
-    title: "Semester 1 Exam Results",
-    timestamp: new Date().toISOString(),
-    confidence: 92,
-    data: [
-      { id: "S001", name: "John Smith", subject: "Mathematics", marks: 85 },
-      { id: "S002", name: "Emily Johnson", subject: "Mathematics", marks: 92 },
-      { id: "S003", name: "Michael Brown", subject: "Mathematics", marks: 78 },
-      { id: "S004", name: "Sarah Davis", subject: "Mathematics", marks: 88 },
-      { id: "S005", name: "David Wilson", subject: "Mathematics", marks: 76 },
-    ],
+    // Poll for the result
+    const result = await pollForResult(taskId)
+
+    // Save the result to the database
+    await createScanResult({
+      title: result.title,
+      timestamp: new Date(),
+      data: result.data,
+      confidence: result.confidence,
+      originalImage: imageDataUrl,
+      processedImage: result.processedImage,
+    })
+
+    return result
+  } catch (error) {
+    console.error("Error scanning document:", error)
+    throw error
   }
 }
 
-// In a real implementation, you would have functions like:
-// - preprocessImage: to enhance image quality before OCR
-// - extractTableData: to identify and extract tabular data
-// - parseStudentRecords: to structure the extracted data
-// - validateData: to ensure data quality and consistency
+// Poll for the result of an OCR processing task
+async function pollForResult(taskId: string, maxAttempts = 60, interval = 1000): Promise<any> {
+  let attempts = 0
+
+  while (attempts < maxAttempts) {
+    const result = await getProcessingResult(taskId)
+
+    if (result.status === "completed") {
+      return result
+    }
+
+    if (result.status === "failed") {
+      throw new Error(result.error || "Processing failed")
+    }
+
+    // Wait before trying again
+    await new Promise((resolve) => setTimeout(resolve, interval))
+    attempts++
+  }
+
+  throw new Error("Processing timed out")
+}
+
+// Upload a file for OCR processing
+export async function uploadForScanning(file: File, options = {}): Promise<any> {
+  try {
+    // Upload the file and start OCR processing
+    const taskId = await uploadFile(file, options)
+
+    // Poll for the result
+    const result = await pollForResult(taskId)
+
+    // Save the result to the database
+    await createScanResult({
+      title: result.title,
+      timestamp: new Date(),
+      data: result.data,
+      confidence: result.confidence,
+      processedImage: result.processedImage,
+    })
+
+    return result
+  } catch (error) {
+    console.error("Error uploading for scanning:", error)
+    throw error
+  }
+}
+
+export async function getScanHistory() {
+  try {
+    const response = await fetch("/api/scan/history")
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || "Failed to fetch scan history")
+    }
+
+    return await response.json()
+  } catch (error) {
+    console.error("Error fetching scan history:", error)
+    throw error
+  }
+}
+
+export async function getScanResult(id: string) {
+  try {
+    const response = await fetch(`/api/scan/${id}`)
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || "Failed to fetch scan result")
+    }
+
+    return await response.json()
+  } catch (error) {
+    console.error("Error fetching scan result:", error)
+    throw error
+  }
+}
+
+export async function updateScanResult(id: string, data: any) {
+  try {
+    const response = await fetch(`/api/scan/${id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || "Failed to update scan result")
+    }
+
+    return await response.json()
+  } catch (error) {
+    console.error("Error updating scan result:", error)
+    throw error
+  }
+}
+
+export async function deleteScanResult(id: string) {
+  try {
+    const response = await fetch(`/api/scan/${id}`, {
+      method: "DELETE",
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || "Failed to delete scan result")
+    }
+
+    return await response.json()
+  } catch (error) {
+    console.error("Error deleting scan result:", error)
+    throw error
+  }
+}
 
